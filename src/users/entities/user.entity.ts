@@ -3,11 +3,14 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  OneToOne,
   PrimaryGeneratedColumn,
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { UserInfo } from './user-info.entity';
 
 @Entity()
 @Unique(['email'])
@@ -33,6 +36,10 @@ export class User {
   @Column({ nullable: true })
   @Exclude()
   public hashedRefreshToken?: string;
+
+  @OneToOne((type) => UserInfo, { eager: true })
+  @JoinColumn()
+  user_info: UserInfo;
 
   async validatePassword(
     password: string,

@@ -1,6 +1,8 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -16,6 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import { ExceptionsHandler } from '@nestjs/core/exceptions/exceptions-handler';
 import { SignInCredentialsDto } from './dto/signin-credentials.dto';
 import { Request } from 'express';
+import { UserInfo } from 'src/users/entities/user-info.entity';
 
 @Injectable()
 export class AuthService {
@@ -25,6 +28,9 @@ export class AuthService {
     private configService: ConfigService,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+
+    // @InjectRepository(UserInfo)
+    // private userInfoRepository: Repository<UserInfo>,
   ) {}
 
   async validateUser(email: string, password: string) {
@@ -36,9 +42,8 @@ export class AuthService {
     throw new UnauthorizedException('User or password are incorrect');
   }
 
-  async validateUserPassword(
-    signinCredentialDto: SignInCredentialsDto,
-  ): Promise<IUser> {
+  async validateUserPassword(signinCredentialDto: SignInCredentialsDto) {
+    // : Promise<IUser>
     const { email, password } = signinCredentialDto;
 
     const user = await this.userService.getUserByEmail(email);
@@ -46,6 +51,8 @@ export class AuthService {
       return {
         id: user.id,
         email: user.email,
+        username: user.username,
+        user_info: user.user_info,
       };
     } else {
       return null;
@@ -58,14 +65,13 @@ export class AuthService {
     if (!validatedUser) {
       throw new UnauthorizedException('Invalid credentials');
     }
-
-    // req.user = validatedUser;
     const accessToken = await this.getAccessToken(validatedUser);
     const refreshToken = await this.getRefreshToken(validatedUser);
 
     return {
       id: validatedUser.id,
       email: validatedUser.email,
+      userInfo: validatedUser.user_info,
       token: accessToken,
       refreshToken,
     };
@@ -133,22 +139,46 @@ export class AuthService {
       throw new BadRequestException('This email already exist');
     }
 
-    const user = await this.userRepository.save({
-      email: createUserDto.email,
-      username: createUserDto.username,
-      password: await this.hashPassword(createUserDto.password),
-    });
+    const user = new User();
+    user.email = createUserDto.email;
+    user.username = createUserDto.username;
+    user.password = await this.hashPassword(createUserDto.password);
+    // const user = await this.userRepository.save({
+    //   email: createUserDto.email,
+    //   username: createUserDto.username,
+    //   password: await this.hashPassword(createUserDto.password),
+    // });
+    try {
+      const userInfo = new UserInfo();
+      await userInfo.save();
+      user.user_info = userInfo;
+      await this.userRepository.save(user);
 
-    const token = this.jwtService.sign({
-      email: createUserDto.email,
-      id: user.id,
-    });
+      const token = await this.jwtService.sign(
+        {
+          email: createUserDto.email,
+          id: user.id,
+        },
+        {
+          secret: this.configService.get('JWT_SECRET_KEY'),
+          expiresIn: +this.configService.get(
+            'JWT_ACCESS_TOKEN_EXPIRATION_TIME',
+          ),
+        },
+      );
 
-    return {
-      message: 'User successfully created',
-      user,
-      token,
-    };
+      return {
+        message: 'User successfully created',
+        user,
+        token,
+      };
+    } catch (error) {
+      if (error.code === '23505') {
+        throw new ConflictException('Username already exists');
+      } else {
+        throw new InternalServerErrorException();
+      }
+    }
   }
 
   async signOut(user: IUser) {

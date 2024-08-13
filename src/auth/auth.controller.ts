@@ -57,7 +57,7 @@ export class AuthController {
   async refreshToken(@GetUser() user: User, @Body() token: RefreshTokenDto) {
     const user_info = await this.authService.getUserIfRefreshTokenMatches(
       token.refresh_token,
-      'email2@gmail.com',
+      user.email,
     );
 
     if (user_info) {
